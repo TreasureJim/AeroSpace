@@ -1,16 +1,23 @@
 import AppKit
 import Common
 
-enum FrozenTreeNode: Sendable {
+enum FrozenTreeNode: Codable, Sendable {
     case container(FrozenContainer)
     case window(FrozenWindow)
 }
 
-struct FrozenContainer: Sendable {
+struct FrozenContainer: Codable, Sendable {
     let children: [FrozenTreeNode]
     let layout: Layout
     let orientation: Orientation
     let weight: CGFloat
+
+    init(children: [FrozenTreeNode], layout: Layout, orientation: Orientation, weight: CGFloat) {
+        self.children = children
+        self.layout = layout
+        self.orientation = orientation
+        self.weight = weight
+    }
 
     @MainActor init(_ container: TilingContainer) {
         children = container.children.map {
@@ -32,12 +39,20 @@ struct FrozenContainer: Sendable {
     }
 }
 
-struct FrozenWindow: Sendable {
+struct FrozenWindow: Codable, Sendable {
     let id: UInt32
+    let pid: Int32
     let weight: CGFloat
+
+    init(id: UInt32, pid: Int32, weight: CGFloat) {
+        self.id = id
+        self.pid = pid
+        self.weight = weight
+    }
 
     @MainActor init(_ window: Window) {
         id = window.windowId
+        pid = window.app.pid
         weight = getWeightOrNil(window) ?? 1
     }
 }

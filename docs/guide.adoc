@@ -254,6 +254,20 @@ after-startup-command = [
 ]
 ----
 
+[#workspace-session-restoration]
+=== Workspace session restoration
+
+AeroSpace saves the current workspace tree to
+`~/Library/Application Support/AeroSpace/session-state.plist` after one second
+without a workspace or layout mutation. Further mutations reset this timer, so
+rapid changes are coalesced into one atomic save.
+
+When AeroSpace starts, it restores saved windows that are still running. A
+window is matched using its Accessibility window ID and process ID; windows
+whose process was relaunched, or that no longer exist, are ignored. Applications
+are never launched by the restoration feature. If AeroSpace crashes during the
+debounce interval, the previous completed save is restored.
+
 [#exec-env-vars]
 === exec-* Environment Variables
 

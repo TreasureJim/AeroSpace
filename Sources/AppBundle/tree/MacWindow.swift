@@ -38,6 +38,7 @@ final class MacWindow: Window {
         if try await !restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window) {
             await runOnWindowDetected(ifConventional: window)
         }
+        scheduleWorkspaceSessionPersistence()
         return window
     }
 
@@ -80,6 +81,7 @@ final class MacWindow: Window {
         if MacWindow.allWindowsMap.removeValue(forKey: windowId) == nil {
             return
         }
+        scheduleWorkspaceSessionPersistence()
         if !skipClosedWindowsCache { cacheClosedWindowIfNeeded() }
         let parent = unbindFromParent().parent
         let deadWindowWorkspace = parent.nodeWorkspace
@@ -247,17 +249,15 @@ func runOnWindowDetected(ifConventional window: Window) async {
              .macosFullscreenWindowsContainer, .macosHiddenAppsWindowsContainer:
             let layout = global_layoutForNextDetectedWindow
             global_layoutForNextDetectedWindow = nil
-            defer {
-                if let layout {
-                    await LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [layout]))
-                        .run(.defaultEnv.withWindowId(window.windowId), .emptyStdin)
-                }
-            }
             if let layout {
                 await LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [layout]))
                     .run(.defaultEnv.withWindowId(window.windowId), .emptyStdin)
             }
             _ = await onWindowDetected(.defaultEnv, CmdIoImpl.emptyStdinIgnoringOut, window)
+            if let layout {
+                await LayoutCommand(args: LayoutCmdArgs(rawArgs: [], toggleBetween: [layout]))
+                    .run(.defaultEnv.withWindowId(window.windowId), .emptyStdin)
+            }
         case .macosPopupWindowsContainer, .unbound:
             break
     }

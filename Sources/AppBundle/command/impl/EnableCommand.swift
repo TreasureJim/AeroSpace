@@ -23,6 +23,9 @@ struct EnableCommand: Command {
             }
         }
 
+        if !newState {
+            flushWorkspaceSessionPersistence()
+        }
         TrayMenuModel.shared.isEnabled = newState
         if newState {
             for workspace in Workspace.all {

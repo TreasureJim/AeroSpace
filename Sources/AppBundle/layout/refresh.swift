@@ -135,7 +135,6 @@ private func refresh() async throws {
             try await MacWindow.getOrRegister(windowId: windowId, macApp: app)
         }
     }
-
     // Garbage collect workspaces after apps, because workspaces contain apps.
     Workspace.garbageCollectUnusedWorkspaces()
 }
