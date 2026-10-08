@@ -17,7 +17,16 @@ final class MacWindow: Window {
     @MainActor
     @discardableResult
     static func getOrRegister(windowId: UInt32, macApp: MacApp) async throws -> MacWindow {
-        if let existing = allWindowsMap[windowId] { return existing }
+        if let existing = allWindowsMap[windowId] {
+            // #region agent log
+            debugSessionLog("initial", "B", "MacWindow.swift:20", "windowMapHit", [
+                "windowId": String(windowId),
+                "pid": String(macApp.pid),
+                "workspace": existing.nodeWorkspace?.name ?? "nil",
+            ])
+            // #endregion
+            return existing
+        }
         let rect = try await macApp.getAxRect(windowId, .cancellable)
         let data = try await unbindAndGetBindingDataForNewWindow(
             windowId,
@@ -33,6 +42,14 @@ final class MacWindow: Window {
         if let existing = allWindowsMap[windowId] { return existing }
         let window = MacWindow(windowId, macApp, lastFloatingSize: rect?.size, parent: data.parent, adaptiveWeight: data.adaptiveWeight, index: data.index)
         allWindowsMap[windowId] = window
+        // #region agent log
+        debugSessionLog("initial", "A", "MacWindow.swift:47", "windowMapInsert", [
+            "windowId": String(windowId),
+            "pid": String(macApp.pid),
+            "workspace": window.nodeWorkspace?.name ?? "nil",
+            "mapCount": String(allWindowsMap.count),
+        ])
+        // #endregion
 
         try await debugWindowsIfRecording(window, .cancellable)
         if try await !restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: window) {

@@ -50,6 +50,13 @@ final class MacApp: AbstractApp {
         // Otherwise, false positive ax notifications might trigger that lead to gcWindows
         if nsApp.bundleIdentifier == lockScreenAppBundleId { return nil }
         let pid = nsApp.processIdentifier
+        // #region agent log
+        debugSessionLog("initial", "A", "MacApp.swift:52", "getOrRegister", [
+            "pid": String(pid),
+            "appId": nsApp.bundleIdentifier ?? "nil",
+            "knownAppCount": String(allAppsMap.count),
+        ])
+        // #endregion
         // AX requests crash if you send them to yourself
         if pid == myPid { return nil }
 
@@ -123,6 +130,12 @@ final class MacApp: AbstractApp {
                 .flatMap { try windows.threadGuarded.getOrRegisterAxWindow(windowId: $0.windowId, $0.ax.cast, nsApp, job) }?
                 .windowId
         }
+        // #region agent log
+        debugSessionLog("initial", "D", "MacApp.swift:132", "nativeFocusedWindow", [
+            "pid": String(pid),
+            "windowId": String(describing: windowId),
+        ])
+        // #endregion
         guard let windowId else { return nil }
         return try await MacWindow.getOrRegister(windowId: windowId, macApp: self)
     }
@@ -133,16 +146,41 @@ final class MacApp: AbstractApp {
         // Performance optimization. If possible avoid doing AX requests
         // (important for apps which are slow at responding even such basic AX requests. E.g. Godot)
         // Beware of the macOS bug: https://github.com/nikitabobko/AeroSpace/issues/101
-        if (!NSScreen.screensHaveSeparateSpaces || monitorInfos.count == 1) &&
+        let activateOnly = (!NSScreen.screensHaveSeparateSpaces || monitorInfos.count == 1) &&
             (lastNativeFocusedWindowId == windowId || windowsCount == 1)
+        // #region agent log
+        debugSessionLog("initial", "B", "MacApp.swift:143", "nativeFocus", [
+            "pid": String(pid),
+            "windowId": String(windowId),
+            "lastNativeFocusedWindowId": String(describing: lastNativeFocusedWindowId),
+            "windowsCount": String(windowsCount),
+            "activateOnly": String(activateOnly),
+        ])
+        // #endregion
+        if activateOnly
         {
             nsApp.activate(options: .activateIgnoringOtherApps)
         } else {
-            MacApp.focusJob = withWindowAsync(windowId, .cancellable) { [nsApp] window, job in
+            let debugPid = pid
+            MacApp.focusJob = withWindowAsync(windowId, .cancellable) { [nsApp, debugPid] window, job in
                 // Raise firstly to make sure that by the time we activate the app, the window would be already on top
-                window.set(Ax.isMainAttr, true)
-                AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                let mainSet = window.set(Ax.isMainAttr, true)
+                let raiseStatus = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                let targetIsMainBeforeActivate = window.get(Ax.isMainAttr)
+                let targetIsFocusedBeforeActivate = window.get(Ax.isFocused)
                 nsApp.activate(options: .activateIgnoringOtherApps)
+                // #region agent log
+                debugSessionLog("third", "G", "MacApp.swift:168", "nativeFocusAXResult", [
+                    "pid": String(debugPid),
+                    "windowId": String(windowId),
+                    "mainSet": String(mainSet),
+                    "raiseStatus": String(raiseStatus.rawValue),
+                    "targetIsMainBeforeActivate": String(describing: targetIsMainBeforeActivate),
+                    "targetIsFocusedBeforeActivate": String(describing: targetIsFocusedBeforeActivate),
+                    "targetIsMain": String(describing: window.get(Ax.isMainAttr)),
+                    "targetIsFocused": String(describing: window.get(Ax.isFocused)),
+                ])
+                // #endregion
             }
         }
     }

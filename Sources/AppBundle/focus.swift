@@ -1,6 +1,30 @@
 import AppKit
 import Common
 
+// #region agent log
+func debugSessionLog(_ runId: String, _ hypothesisId: String, _ location: String, _ message: String, _ data: [String: String]) {
+    let payload: [String: Any] = [
+        "sessionId": "901713",
+        "runId": runId,
+        "hypothesisId": hypothesisId,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": Int(Date().timeIntervalSince1970 * 1000),
+    ]
+    guard let json = try? JSONSerialization.data(withJSONObject: payload) else { return }
+    let path = "/Users/lboerebaeck/repos/personal/AeroSpace/.cursor/debug-901713.log"
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(json)
+        handle.write(Data([10]))
+        try? handle.close()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: json + Data([10]))
+    }
+}
+// #endregion
+
 enum EffectiveLeaf {
     case window(Window)
     case emptyWorkspace(Workspace)
@@ -61,6 +85,14 @@ private struct FrozenFocus: AeroAny, Equatable, Sendable {
 @MainActor var focus: LiveFocus { _focus.live }
 
 @MainActor func setFocus(to newFocus: LiveFocus) -> Bool {
+    // #region agent log
+    debugSessionLog("initial", "C", "focus.swift:64", "setFocus", [
+        "oldWindowId": String(describing: _focus.windowId),
+        "oldWorkspace": _focus.workspaceName,
+        "newWindowId": String(describing: newFocus.windowOrNil?.windowId),
+        "newWorkspace": newFocus.workspace.name,
+    ])
+    // #endregion
     if _focus == newFocus.frozen { return true }
     let oldFocus = focus
     // Normalize mruWindow when focus away from a workspace
@@ -76,6 +108,14 @@ private struct FrozenFocus: AeroAny, Equatable, Sendable {
 }
 extension Window {
     @MainActor func focusWindow() -> Bool {
+        // #region agent log
+        debugSessionLog("initial", "C", "focus.swift:101", "focusWindow", [
+            "windowId": String(windowId),
+            "pid": String(app.pid),
+            "workspace": nodeWorkspace?.name ?? "nil",
+            "parent": String(describing: windowParentCases),
+        ])
+        // #endregion
         if let focus = toLiveFocusOrNil() {
             return setFocus(to: focus)
         } else {
@@ -88,7 +128,19 @@ extension Window {
     @MainActor func toLiveFocusOrNil() -> LiveFocus? { visualWorkspace.map { LiveFocus(windowOrNil: self, workspace: $0) } }
 }
 extension Workspace {
-    @MainActor func focusWorkspace() -> Bool { setFocus(to: toLiveFocus()) }
+    @MainActor func focusWorkspace() -> Bool {
+        let target = toLiveFocus()
+        // #region agent log
+        debugSessionLog("second", "F", "focus.swift:137", "focusWorkspace", [
+            "workspace": name,
+            "windowId": String(describing: target.windowOrNil?.windowId),
+            "pid": String(describing: target.windowOrNil?.app.pid),
+            "currentWorkspace": focus.workspace.name,
+            "currentWindowId": String(describing: focus.windowOrNil?.windowId),
+        ])
+        // #endregion
+        return setFocus(to: target)
+    }
 
     func toLiveFocus() -> LiveFocus {
         // todo unfortunately mostRecentWindowRecursive may recursively reach empty rootTilingContainer

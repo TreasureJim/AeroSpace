@@ -7,6 +7,16 @@ struct FocusCommand: Command {
 
     func run(_ env: CmdEnv, _ io: CmdIo) async -> BinaryExitCode {
         guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
+        // #region agent log
+        debugSessionLog("initial", "C", "FocusCommand.swift:10", "focusCommandTarget", [
+            "target": String(describing: args.target),
+            "targetWindowId": String(describing: target.windowOrNil?.windowId),
+            "targetPid": String(describing: target.windowOrNil?.app.pid),
+            "targetWorkspace": target.workspace.name,
+            "currentWindowId": String(describing: focus.windowOrNil?.windowId),
+            "currentWorkspace": focus.workspace.name,
+        ])
+        // #endregion
         if let window = target.windowOrNil, await shouldFailBecauseFullscreen_nonCancellable(
             window: window,
             failIfFullscreen: args.failIfFullscreen,

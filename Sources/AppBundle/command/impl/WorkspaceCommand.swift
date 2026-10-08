@@ -9,6 +9,16 @@ struct WorkspaceCommand: Command {
     func run(_ env: CmdEnv, _ io: CmdIo) -> BinaryExitCode { // todo refactor
         guard let target = args.resolveTargetOrReportError(env, io) else { return .fail }
         let focusedWs = target.workspace
+        // #region agent log
+        debugSessionLog("second", "E", "WorkspaceCommand.swift:10", "workspaceCommand", [
+            "target": String(describing: args.target.val),
+            "resolvedWorkspace": focusedWs.name,
+            "resolvedWindowId": String(describing: target.windowOrNil?.windowId),
+            "resolvedPid": String(describing: target.windowOrNil?.app.pid),
+            "currentFocusWindowId": String(describing: focus.windowOrNil?.windowId),
+            "currentFocusWorkspace": focus.workspace.name,
+        ])
+        // #endregion
         let workspaceName: String
         switch args.target.val {
             case .relative(let nextPrev):
@@ -34,6 +44,14 @@ struct WorkspaceCommand: Command {
                     .succ(io.err("Workspace '\(workspaceName)' is already focused. Tip: use --fail-if-noop to exit with non-zero code"))
             }
         } else {
+            // #region agent log
+            debugSessionLog("second", "E", "WorkspaceCommand.swift:46", "workspaceCommandTarget", [
+                "fromWorkspace": focusedWs.name,
+                "toWorkspace": workspaceName,
+                "toWindowId": String(describing: Workspace.get(byName: workspaceName).mostRecentWindowRecursive?.windowId),
+                "toPid": String(describing: Workspace.get(byName: workspaceName).mostRecentWindowRecursive?.app.pid),
+            ])
+            // #endregion
             return .from(bool: Workspace.get(byName: workspaceName).focusWorkspace())
         }
     }

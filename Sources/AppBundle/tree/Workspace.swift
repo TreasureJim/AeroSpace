@@ -145,6 +145,14 @@ extension CGPoint {
         if !isValidAssignment(workspace: workspace, screen: self) {
             return false
         }
+        // #region agent log
+        debugSessionLog("second", "F", "Workspace.swift:148", "setActiveWorkspaceBefore", [
+            "screenX": String(describing: x),
+            "screenY": String(describing: y),
+            "requestedWorkspace": workspace.name,
+            "previousWorkspace": screenPointToVisibleWorkspace[self]?.name ?? "nil",
+        ])
+        // #endregion
         if let prevMonitorPoint = visibleWorkspaceToScreenPoint[workspace] {
             visibleWorkspaceToScreenPoint.removeValue(forKey: workspace)
             screenPointToPrevVisibleWorkspace[prevMonitorPoint] =
@@ -158,6 +166,13 @@ extension CGPoint {
         visibleWorkspaceToScreenPoint[workspace] = self
         screenPointToVisibleWorkspace[self] = workspace
         workspace.assignedMonitorPoint = self
+        // #region agent log
+        debugSessionLog("second", "F", "Workspace.swift:175", "setActiveWorkspaceAfter", [
+            "screenX": String(describing: x),
+            "screenY": String(describing: y),
+            "activeWorkspace": screenPointToVisibleWorkspace[self]?.name ?? "nil",
+        ])
+        // #endregion
         return true
     }
 }
