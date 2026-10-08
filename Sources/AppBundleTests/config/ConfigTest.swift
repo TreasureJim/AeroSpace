@@ -165,6 +165,29 @@ final class ConfigTest: XCTestCase {
         )
     }
 
+    func testSideSpecificAltBindings() {
+        let result = parseConfig(
+            """
+            [mode.main.binding]
+                left-alt-h = 'focus left'
+                right-cmd-h = 'focus right'
+                left-ctrl-shift-h = 'focus up'
+            """,
+        )
+        assertEquals(result.errors, [])
+        let leftBinding = HotkeyBinding(.option, .h, .cmd(FocusCommand.new(direction: .left)), descriptionWithKeyNotation: "left-alt-h", sideSpecificModifiers: [.alt(.left)])
+        let rightBinding = HotkeyBinding(.command, .h, .cmd(FocusCommand.new(direction: .right)), descriptionWithKeyNotation: "right-cmd-h", sideSpecificModifiers: [.cmd(.right)])
+        let controlShiftBinding = HotkeyBinding([.control, .shift], .h, .cmd(FocusCommand.new(direction: .up)), descriptionWithKeyNotation: "left-ctrl-shift-h", sideSpecificModifiers: [.ctrl(.left)])
+        assertEquals(
+            result.config.modes[mainModeId],
+            Mode(bindings: [
+                leftBinding.descriptionWithKeyCode: leftBinding,
+                rightBinding.descriptionWithKeyCode: rightBinding,
+                controlShiftBinding.descriptionWithKeyCode: controlShiftBinding,
+            ]),
+        )
+    }
+
     func testPermanentWorkspaceNames() {
         let result = parseConfig(
             """

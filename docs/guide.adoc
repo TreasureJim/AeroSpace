@@ -119,6 +119,8 @@ You can create multiple sets of bindings by creating different binding modes.
 When you switch to a different binding mode, all the bindings from the current mode are deactivated, and only the bindings specified in the new mode become active.
 The initial binding mode that AeroSpace starts out with is "main".
 
+Use `left-` or `right-` with `alt`, `ctrl`, `cmd`, or `shift` to require a physical modifier key, for example `left-alt-h` or `right-cmd-h`. This requires granting AeroSpace Input Monitoring permission in macOS System Settings.
+
 This feature is absolutely identical to the one
 https://i3wm.org/docs/userguide.html#binding_modes[in i3]
 
