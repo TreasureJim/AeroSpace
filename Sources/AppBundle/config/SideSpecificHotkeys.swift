@@ -3,67 +3,122 @@ import HotKey
 
 /// Handles bindings that need to distinguish physical left and right modifier keys.
 ///
-/// Carbon's global-hotkey API has no left-only modifier. A global event monitor lets us
-/// track physical modifier keys and preserves the existing Carbon path for all others.
+/// Carbon's global-hotkey API has no left-only modifier. A Quartz event tap lets us
+/// track physical modifier keys and consume matching key events.
 @MainActor enum SideSpecificHotkeys {
-    private static var bindings: [String: HotkeyBinding] = [:]
-    private static var eventMonitor: Any?
-    private static var pressedModifiers: Set<SideSpecificModifier> = []
+    private static var tapState: SideSpecificHotkeyTapState?
 
     static func setBindings(_ newBindings: [String: HotkeyBinding]) {
-        bindings = newBindings
-        guard !bindings.isEmpty else {
-            removeEventMonitor()
+        removeEventTap()
+        guard !newBindings.isEmpty else {
             return
         }
-        installEventMonitorIfNeeded()
+        installEventTap(bindings: Array(newBindings.values))
     }
 
-    private static func installEventMonitorIfNeeded() {
-        guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
-            let type = event.type
-            let keyCode = event.keyCode
-            let modifiers = event.modifierFlags.rawValue
-            Task { @MainActor in
-                handleEvent(type: type, keyCode: keyCode, modifiers: modifiers)
-            }
+    private static func installEventTap(bindings: [HotkeyBinding]) {
+        let state = SideSpecificHotkeyTapState(bindings: bindings)
+        let eventMask =
+            (CGEventMask(1) << CGEventType.flagsChanged.rawValue) |
+            (CGEventMask(1) << CGEventType.keyDown.rawValue)
+        let userInfo = UnsafeMutableRawPointer(Unmanaged.passUnretained(state).toOpaque())
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: sideSpecificHotkeyEventTapCallback,
+            userInfo: userInfo,
+        ) else {
+            return
         }
+        state.tap = tap
+        tapState = state
+        state.thread = Thread {
+            let runLoop = CFRunLoopGetCurrent()
+            state.runLoop = runLoop
+            let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            CFRunLoopRun()
+        }
+        state.thread?.start()
     }
 
-    private static func removeEventMonitor() {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
-        eventMonitor = nil
+    private static func removeEventTap() {
+        guard let state = tapState else { return }
+        state.stop()
+        tapState = nil
+    }
+}
+
+private final class SideSpecificHotkeyTapState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bindings: [HotkeyBinding]
+    private var pressedModifiers: Set<SideSpecificModifier> = []
+    var tap: CFMachPort?
+    var runLoop: CFRunLoop?
+    var thread: Thread?
+
+    init(bindings: [HotkeyBinding]) {
+        self.bindings = bindings
+    }
+
+    func stop() {
+        lock.lock()
         pressedModifiers = []
+        let runLoop = self.runLoop
+        let tap = self.tap
+        lock.unlock()
+        if let runLoop {
+            CFRunLoopStop(runLoop)
+        }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
     }
 
-    private static func handleEvent(type: NSEvent.EventType, keyCode: UInt16, modifiers: UInt) {
+    func handle(_ type: CGEventType, event: CGEvent) -> HotkeyBinding? {
+        lock.lock()
+        defer { lock.unlock() }
         if type == .flagsChanged {
-            if let modifier = modifier(for: keyCode) {
+            if let modifier = SideSpecificHotkeyMatching.modifier(for: event.getIntegerValueField(.keyboardEventKeycode)) {
                 if pressedModifiers.contains(modifier) {
                     pressedModifiers.remove(modifier)
                 } else {
                     pressedModifiers.insert(modifier)
                 }
             }
-            return
+            return nil
         }
-        guard type == .keyDown else { return }
-
-        let modifiers = NSEvent.ModifierFlags(rawValue: modifiers)
-        let keyboardModifiers: NSEvent.ModifierFlags = [.shift, .option, .control, .command]
-        for binding in bindings.values where
-            binding.keyCode.carbonKeyCode == UInt32(keyCode) &&
-            binding.modifiers == modifiers.intersection(keyboardModifiers) &&
-            binding.sideSpecificModifiers.isSubset(of: pressedModifiers)
-        {
-            triggerHotkeyBinding(binding)
+        guard type == .keyDown else { return nil }
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let modifiers = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+        return bindings.first {
+            SideSpecificHotkeyMatching.matches(
+                binding: $0,
+                keyCode: keyCode,
+                modifiers: modifiers,
+                pressedModifiers: pressedModifiers,
+            )
         }
     }
+}
 
-    private static func modifier(for keyCode: UInt16) -> SideSpecificModifier? {
+enum SideSpecificHotkeyMatching {
+    static func matches(
+        binding: HotkeyBinding,
+        keyCode: Int64,
+        modifiers: NSEvent.ModifierFlags,
+        pressedModifiers: Set<SideSpecificModifier>,
+    ) -> Bool {
+        binding.keyCode.carbonKeyCode == UInt32(keyCode) &&
+            binding.modifiers == modifiers.intersection([.shift, .option, .control, .command]) &&
+            binding.sideSpecificModifiers.isSubset(of: pressedModifiers)
+    }
+
+    static func modifier(for keyCode: Int64) -> SideSpecificModifier? {
         switch UInt32(keyCode) {
             case Key.option.carbonKeyCode: .alt(.left)
             case Key.rightOption.carbonKeyCode: .alt(.right)
@@ -76,4 +131,27 @@ import HotKey
             default: nil
         }
     }
+}
+
+private func sideSpecificHotkeyEventTapCallback(
+    _ proxy: CGEventTapProxy,
+    _ type: CGEventType,
+    _ event: CGEvent,
+    _ userInfo: UnsafeMutableRawPointer?,
+) -> Unmanaged<CGEvent>? {
+    guard let userInfo else { return Unmanaged.passUnretained(event) }
+    let state = Unmanaged<SideSpecificHotkeyTapState>.fromOpaque(userInfo).takeUnretainedValue()
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        if let tap = state.tap {
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+        return Unmanaged.passUnretained(event)
+    }
+    guard let binding = state.handle(type, event: event) else {
+        return Unmanaged.passUnretained(event)
+    }
+    Task { @MainActor in
+        triggerHotkeyBinding(binding)
+    }
+    return nil
 }
