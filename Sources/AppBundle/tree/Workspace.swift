@@ -116,14 +116,19 @@ extension Workspace {
 extension MonitorInfo {
     @MainActor
     var activeWorkspace: Workspace {
-        if let existing = screenPointToVisibleWorkspace[rect.topLeftCorner] {
+        let point = rect.topLeftCorner
+        if let existing = screenPointToVisibleWorkspace[point] {
             return existing
         }
         // What if monitor configuration changed? (frame.origin is changed)
         rearrangeWorkspacesOnMonitors()
-        // Normally, recursion should happen only once more because we must take the value from the cache
-        // (Unless, monitor configuration data race happens)
-        return self.activeWorkspace
+        if let existing = screenPointToVisibleWorkspace[point] {
+            return existing
+        }
+        // The MonitorInfo is stale: NSScreen.screens changed after it was captured (e.g. during display reconfiguration).
+        // Don't recurse, otherwise it's an infinite recursion because rearrangeWorkspacesOnMonitors won't ever cache this point
+        return screenPointToVisibleWorkspace[point.monitorApproximation.rect.topLeftCorner]
+            ?? getStubWorkspace(forPoint: point)
     }
 
     @MainActor
