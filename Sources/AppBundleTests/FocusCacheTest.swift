@@ -8,7 +8,7 @@ struct FocusCacheTest {
         setUpWorkspacesForTests()
     }
 
-    @Test func ignoresStaleFocusFromAppUntilExpectedWindowIsObserved() {
+    @Test func ignoresStaleFocusFromAppUntilFocusTransactionSettles() {
         let expectedWorkspace = Workspace.get(byName: "expected")
         let staleWorkspace = Workspace.get(byName: "stale")
         let expectedWindow = TestWindow.new(id: 1, parent: expectedWorkspace.rootTilingContainer)
@@ -23,7 +23,7 @@ struct FocusCacheTest {
 
         updateFocusCache(expectedWindow)
         updateFocusCache(staleWindow)
-        #expect(globalFocus.windowOrNil === staleWindow)
-        #expect(globalFocus.workspace === staleWorkspace)
+        #expect(globalFocus.windowOrNil === expectedWindow)
+        #expect(globalFocus.workspace === expectedWorkspace)
     }
 }

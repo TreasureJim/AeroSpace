@@ -1,15 +1,62 @@
 import Common
 
 @MainActor private var lastKnownNativeFocusedWindowId: OpaqueWindowId? = nil
-@MainActor private var expectedNativeFocusedWindow: Window? = nil
+@MainActor private var nativeFocusTransaction: NativeFocusTransaction? = nil
+@MainActor private var nativeFocusReassertionTask: Task<Void, Never>? = nil
+@MainActor private var nextNativeFocusTransactionId: UInt64 = 0
 
-/// Keep AeroSpace focus authoritative until macOS acknowledges a focus request.
+private let nativeFocusSettlingDuration = Duration.milliseconds(250)
+private let nativeFocusReassertionDelay = Duration.milliseconds(100)
+
+@MainActor
+private struct NativeFocusTransaction {
+    let id: UInt64
+    let target: Window
+    var acknowledged = false
+    var correctionAttempts = 0
+    var deadline: ContinuousClock.Instant
+}
+
+/// Keep AeroSpace focus authoritative while an explicit macOS focus request settles.
 ///
-/// Some apps can keep reporting their previously focused window while an explicit
-/// workspace switch is in progress. This is especially visible when the two
-/// windows are on separate monitors, where both workspaces remain visible.
+/// Chrome can first acknowledge the requested window, then publish its previous
+/// window as focused a few milliseconds later. A rapid workspace switch can
+/// also let an older native-focus request surface after the newest request.
+/// The transaction remains active through those late events. A newer focus
+/// request replaces the transaction immediately.
 @MainActor func expectNativeFocus(_ window: Window) {
-    expectedNativeFocusedWindow = window
+    nativeFocusReassertionTask?.cancel()
+    nativeFocusReassertionTask = nil
+    nextNativeFocusTransactionId += 1
+    nativeFocusTransaction = NativeFocusTransaction(
+        id: nextNativeFocusTransactionId,
+        target: window,
+        deadline: ContinuousClock.now + nativeFocusSettlingDuration,
+    )
+}
+
+@MainActor
+private func scheduleNativeFocusReassertion(for transaction: NativeFocusTransaction) {
+    guard transaction.correctionAttempts == 0, nativeFocusReassertionTask == nil else { return }
+    nativeFocusReassertionTask = Task { @MainActor in
+        do {
+            try await Task.sleep(for: nativeFocusReassertionDelay)
+        } catch {
+            return
+        }
+        guard var current = nativeFocusTransaction,
+              current.id == transaction.id,
+              current.deadline > .now
+        else {
+            return
+        }
+        nativeFocusReassertionTask = nil
+        current.correctionAttempts += 1
+        current.acknowledged = false
+        current.deadline = ContinuousClock.now + nativeFocusSettlingDuration
+        nativeFocusTransaction = current
+        current.target.nativeFocus()
+    }
 }
 
 /// The data should flow (from nativeFocused to focused) and
@@ -19,13 +66,23 @@ import Common
     if nativeFocused?.parent is MacosPopupWindowsContainer {
         return
     }
-    if let expected = expectedNativeFocusedWindow {
-        if nativeFocused == expected {
-            expectedNativeFocusedWindow = nil
-        } else if nativeFocused?.app.pid == expected.app.pid {
+    if var transaction = nativeFocusTransaction {
+        if transaction.deadline <= .now {
+            nativeFocusTransaction = nil
+        } else if nativeFocused == transaction.target {
+            transaction.acknowledged = true
+            transaction.deadline = ContinuousClock.now + nativeFocusSettlingDuration
+            nativeFocusTransaction = transaction
+            lastKnownNativeFocusedWindowId = nativeFocused?.windowId
+            (nativeFocused as? MacWindow)?.macApp.lastFocusedNativeWindowOpaqueId = nativeFocused?.windowId
+            return
+        } else if nativeFocused == nil {
             return
         } else {
-            expectedNativeFocusedWindow = nil
+            if transaction.acknowledged {
+                scheduleNativeFocusReassertion(for: transaction)
+            }
+            return
         }
     }
     if nativeFocused?.windowId != lastKnownNativeFocusedWindowId {
