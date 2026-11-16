@@ -67,7 +67,7 @@ func scheduleWorkspaceSessionPersistence() {
             try Task.checkCancellation()
             WorkspaceSessionStore.save(FrozenWorld(
                 workspaces: Workspace.all.map(FrozenWorkspace.init),
-                monitors: monitorInfos.map(FrozenMonitor.init),
+                monitors: globalUnsortedMonitorInfos.map(FrozenMonitor.init),
                 windowIds: Workspace.all.flatMap { collectAllWindowIdsRecursive($0) }.toSet(),
             ), generation: generation)
         } catch {
@@ -84,7 +84,7 @@ func flushWorkspaceSessionPersistence() {
     workspaceSessionGeneration += 1
     WorkspaceSessionStore.save(FrozenWorld(
         workspaces: Workspace.all.map(FrozenWorkspace.init),
-        monitors: monitorInfos.map(FrozenMonitor.init),
+        monitors: globalUnsortedMonitorInfos.map(FrozenMonitor.init),
         windowIds: Workspace.all.flatMap { collectAllWindowIdsRecursive($0) }.toSet(),
     ), generation: workspaceSessionGeneration)
 }

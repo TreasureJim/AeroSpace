@@ -15,17 +15,17 @@ func installLoadedWorkspaceSession(_ world: FrozenWorld) {
 }
 
 struct FrozenMonitor: Codable, Sendable {
-    let topLeftCorner: Point
+    let topLeftCorner: CGPoint
     let visibleWorkspace: String
 
-    init(topLeftCorner: Point, visibleWorkspace: String) {
+    init(topLeftCorner: CGPoint, visibleWorkspace: String) {
         self.topLeftCorner = topLeftCorner
         self.visibleWorkspace = visibleWorkspace
     }
 
     @MainActor init(_ monitor: MonitorInfo) {
-        topLeftCorner = monitor.rect.topLeftCorner
-        visibleWorkspace = monitor.activeWorkspace.name
+        topLeftCorner = CGPoint(x: monitor.rect.topLeftCorner.x, y: monitor.rect.topLeftCorner.y)
+        visibleWorkspace = monitor.visibleWorkspace.name
     }
 }
 
@@ -69,32 +69,36 @@ struct FrozenWorkspace: Codable, Sendable {
     }
     closedWindowsCache = FrozenWorld(
         workspaces: allWs.map(FrozenWorkspace.init),
-        monitors: monitorInfos.map(FrozenMonitor.init),
+        monitors: globalUnsortedMonitorInfos.map(FrozenMonitor.init),
         windowIds: allWindowIds,
     )
 }
 
 @MainActor func restoreClosedWindowsCacheIfNeeded(newlyDetectedWindow: Window) async throws -> Bool {
-    if !closedWindowsCache.windowIds.contains(newlyDetectedWindow.windowId) {
+    if !closedWindowsCache.windowIds.contains(UInt32(newlyDetectedWindow.windowId.rawId)) {
         return false
     }
-    let monitors = monitorInfos
+    let monitors = globalUnsortedMonitorInfos
     let topLeftCornerToMonitor = monitors.grouped { $0.rect.topLeftCorner }
 
     for frozenWorkspace in closedWindowsCache.workspaces {
         let workspace = Workspace.get(byName: frozenWorkspace.name)
-        _ = topLeftCornerToMonitor[frozenWorkspace.monitor.topLeftCorner]?
+        let point = Point(
+            x: frozenWorkspace.monitor.topLeftCorner.x,
+            y: frozenWorkspace.monitor.topLeftCorner.y,
+        )
+        _ = topLeftCornerToMonitor[point]?
             .singleOrNil()?
             .setVisibleWorkspace(workspace)
         for frozenWindow in frozenWorkspace.floatingWindows {
-            if let window = MacWindow.get(byId: frozenWindow.id),
+            if let window = MacWindow.get(byId: OpaqueWindowId(UInt64(frozenWindow.id))),
                window.asMacWindow().macApp.pid == frozenWindow.pid
             {
                 window.bindAsFloatingWindow(to: workspace)
             }
         }
         for frozenWindow in frozenWorkspace.macosUnconventionalWindows { // Will get fixed by normalizations
-            if let window = MacWindow.get(byId: frozenWindow.id),
+            if let window = MacWindow.get(byId: OpaqueWindowId(UInt64(frozenWindow.id))),
                window.asMacWindow().macApp.pid == frozenWindow.pid
             {
                 window.bindAsFloatingWindow(to: workspace)
@@ -109,7 +113,8 @@ struct FrozenWorkspace: Codable, Sendable {
         }
     }
     for monitor in closedWindowsCache.monitors {
-        _ = topLeftCornerToMonitor[monitor.topLeftCorner]?
+        let point = Point(x: monitor.topLeftCorner.x, y: monitor.topLeftCorner.y)
+        _ = topLeftCornerToMonitor[point]?
             .singleOrNil()?
             .setVisibleWorkspace(Workspace.get(byName: monitor.visibleWorkspace))
     }
@@ -131,7 +136,7 @@ private func restoreTreeRecursive(frozenContainer: FrozenContainer, parent: NonL
         switch child {
             case .window(let w):
                 // Stop the loop if can't find the window, because otherwise all the subsequent windows will have incorrect index
-                guard let window = MacWindow.get(byId: w.id),
+                guard let window = MacWindow.get(byId: OpaqueWindowId(UInt64(w.id))),
                       window.asMacWindow().macApp.pid == w.pid
                 else { return false }
                 window.bind(to: container, adaptiveWeight: w.weight, index: index)

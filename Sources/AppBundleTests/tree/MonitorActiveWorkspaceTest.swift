@@ -17,7 +17,7 @@ final class MonitorActiveWorkspaceTest: XCTestCase {
     override func setUp() async throws { setUpWorkspacesForTests() }
 
     func testActiveWorkspaceOfStaleMonitorDoesNotRecurseInfinitely() {
-        let workspace = StaleMonitorInfo().activeWorkspace
-        assertEquals(workspace, mainMonitorInfo.activeWorkspace)
+        let workspace = StaleMonitorInfo().visibleWorkspace
+        XCTAssertEqual(workspace, mainMonitorInfo.visibleWorkspace)
     }
 }

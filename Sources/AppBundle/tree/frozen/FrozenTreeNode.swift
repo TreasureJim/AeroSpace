@@ -53,7 +53,7 @@ struct FrozenWindow: Codable, Sendable {
     }
 
     @MainActor init(_ window: Window) {
-        id = window.windowId
+        id = UInt32(window.windowId.rawId)
         pid = window.app.pid
         weight = getWeightOrNil(window) ?? 1
     }

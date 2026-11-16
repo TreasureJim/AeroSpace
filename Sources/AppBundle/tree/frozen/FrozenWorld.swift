@@ -5,7 +5,7 @@ struct FrozenWorld: Codable, Sendable {
 }
 
 func collectAllWindowIdsRecursive(_ node: TreeNode) -> [UInt32] {
-    if let window = node as? Window { return [window.windowId] }
+    if let window = node as? Window { return [UInt32(window.windowId.rawId)] }
     var result = [UInt32]()
     for child in node.children {
         result += collectAllWindowIdsRecursive(child)
