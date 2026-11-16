@@ -1,6 +1,7 @@
 import AppKit
+import Common
 
-@MainActor var currentlyManipulatedWithMouseWindowId: UInt32? = nil
+@MainActor var currentlyManipulatedWithMouseWindowId: OpaqueWindowId? = nil
 var isLeftMouseButtonDown: Bool { NSEvent.pressedMouseButtons == 1 }
 
 @MainActor
@@ -12,4 +13,4 @@ func isManipulatedWithMouse(_ window: Window) async throws -> Bool {
 }
 
 /// Same motivation as in monitorFrameNormalized
-var mouseLocation: CGPoint { NSEvent.mouseLocation.withYAxisFlipped }
+var mouseLocation: Point { NSEvent.mouseLocation.asMyPoint.withYAxisFlipped }

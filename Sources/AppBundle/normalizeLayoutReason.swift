@@ -1,35 +1,33 @@
-@MainActor
-func normalizeLayoutReason() async throws {
+@MainActor func normalizeLayoutReason() async throws {
     for workspace in Workspace.all {
         let windows: [Window] = workspace.allLeafWindowsRecursive
         try await _normalizeLayoutReason(workspace: workspace, windows: windows)
     }
-    try await _normalizeLayoutReason(workspace: focus.workspace, windows: macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self))
+    try await _normalizeLayoutReason(workspace: globalFocus.workspace, windows: macosMinimizedWindowsContainer.children.filterIsInstance(of: Window.self))
     try await validateStillPopups()
 }
 
-@MainActor
-private func validateStillPopups() async throws {
+@MainActor private func validateStillPopups() async throws {
     for node in macosPopupWindowsContainer.children {
         let popup = (node as! MacWindow)
-        let windowLevel = getWindowLevel(for: popup.windowId)
+        let windowLevel = try await popup.getWindowLevel(.cancellable)
         if try await popup.isWindowHeuristic(windowLevel, .cancellable) {
-            try await popup.relayoutWindow(on: focus.workspace, .cancellable)
+            try await popup.relayoutWindow(on: globalFocus.workspace, .cancellable)
             await runOnWindowDetected(ifConventional: popup)
         }
     }
 }
 
-@MainActor
-private func _normalizeLayoutReason(workspace: Workspace, windows: [Window]) async throws {
-    for window in windows {
-        let isMacosFullscreen = try await window.isMacosFullscreen(.cancellable)
-        let isMacosMinimized = try await (!isMacosFullscreen).andAsync { @MainActor @Sendable in try await window.isMacosMinimized(.cancellable) }
+@MainActor private func _normalizeLayoutReason(workspace: Workspace, windows: [Window]) async throws {
+    let states = try await windows.mapConcurrently { try await $0.getMacosWindowNativeState(.cancellable) }
+    for (window, state) in zip(windows, states) {
+        let isMacosFullscreen = state == .nativeFullscreen
+        let isMacosMinimized = state == .nativeMinimized
         let isMacosWindowOfHiddenApp = !isMacosFullscreen && !isMacosMinimized &&
             !config.automaticallyUnhideMacosHiddenApps && window.macAppUnsafe.nsApp.isHidden
         switch window.layoutReason {
             case .standard:
-                guard let parent = window.parent else { continue }
+                guard let parent = window.windowParentCases else { continue }
                 switch true {
                     case isMacosFullscreen:
                         window.layoutReason = .macos(prevParentKind: parent.kind)
@@ -50,10 +48,9 @@ private func _normalizeLayoutReason(workspace: Workspace, windows: [Window]) asy
     }
 }
 
-@MainActor
-func exitMacOsNativeUnconventionalState(
+@MainActor func exitMacOsNativeUnconventionalState(
     window: Window,
-    prevParentKind: NonLeafTreeNodeKind,
+    prevParentKind: WindowParentCases.Kind,
     workspace: Workspace,
     _ cm: CancellationMode,
 ) async throws {
@@ -61,8 +58,6 @@ func exitMacOsNativeUnconventionalState(
     switch prevParentKind {
         case .floatingWindowsContainer:
             window.bindAsFloatingWindow(to: workspace)
-        case .workspace:
-            break // Not possible
         case .tilingContainer:
             try await window.relayoutWindow(on: workspace, cm, forceTile: true)
         case .macosPopupWindowsContainer: // Since the window was minimized/fullscreened it was mistakenly detected as popup. Relayout the window

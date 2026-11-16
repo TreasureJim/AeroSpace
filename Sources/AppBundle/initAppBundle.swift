@@ -6,6 +6,7 @@ import Foundation
     Task.startUnstructured {
         initTerminationHandler()
         unsafe _isCli = false
+        unsafe _isUnitTest = false
         initServerArgs()
         await waitForAccessibilityPermission_nonCancellable()
         if isDebug {
@@ -20,7 +21,11 @@ import Foundation
         startUnixSocketServer()
         GlobalObserver.initObserver()
         Workspace.garbageCollectUnusedWorkspaces() // init workspaces
-        _ = Workspace.all.first?.focusWorkspace()
+        for monitor in Monitor.all {
+            _ = monitor.getWorkspacesContainerOrCreate().children.filterIsInstance(of: Workspace.self)
+                .min()?
+                .focusWorkspace()
+        }
         loadWorkspaceSessionIfPresent()
         await runHeavyCompleteRefreshSession(
             .startup,
@@ -49,7 +54,7 @@ import Foundation
 
 @MainActor
 private func smartLayoutAtStartup() {
-    let workspace = focus.workspace
+    let workspace = globalFocus.workspace
     let root = workspace.rootTilingContainer
     switch root.children.count <= 3 {
         case true: root.layout = .tiles

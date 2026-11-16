@@ -9,4 +9,5 @@ public enum Orientation: String, Codable, Sendable {
 
 extension Orientation {
     public var opposite: Orientation { self == .h ? .v : .h }
+    public mutating func flip() { self = opposite }
 }

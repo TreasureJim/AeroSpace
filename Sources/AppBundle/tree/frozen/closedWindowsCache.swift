@@ -15,10 +15,10 @@ func installLoadedWorkspaceSession(_ world: FrozenWorld) {
 }
 
 struct FrozenMonitor: Codable, Sendable {
-    let topLeftCorner: CGPoint
+    let topLeftCorner: Point
     let visibleWorkspace: String
 
-    init(topLeftCorner: CGPoint, visibleWorkspace: String) {
+    init(topLeftCorner: Point, visibleWorkspace: String) {
         self.topLeftCorner = topLeftCorner
         self.visibleWorkspace = visibleWorkspace
     }
@@ -31,7 +31,7 @@ struct FrozenMonitor: Codable, Sendable {
 
 struct FrozenWorkspace: Codable, Sendable {
     let name: String
-    let monitor: FrozenMonitor // todo drop this property, once monitor to workspace assignment migrates to TreeNode
+    let monitor: FrozenMonitor
     let rootTilingNode: FrozenContainer
     let floatingWindows: [FrozenWindow]
     let macosUnconventionalWindows: [FrozenWindow]
@@ -52,7 +52,7 @@ struct FrozenWorkspace: Codable, Sendable {
 
     @MainActor init(_ workspace: Workspace) {
         name = workspace.name
-        monitor = FrozenMonitor(workspace.workspaceMonitor)
+        monitor = FrozenMonitor(workspace.workspaceMonitorInfo)
         rootTilingNode = FrozenContainer(workspace.rootTilingContainer)
         floatingWindows = workspace.floatingWindows.map(FrozenWindow.init)
         macosUnconventionalWindows =
@@ -68,7 +68,7 @@ struct FrozenWorkspace: Codable, Sendable {
         return // already cached
     }
     closedWindowsCache = FrozenWorld(
-        workspaces: allWs.map { FrozenWorkspace($0) },
+        workspaces: allWs.map(FrozenWorkspace.init),
         monitors: monitorInfos.map(FrozenMonitor.init),
         windowIds: allWindowIds,
     )
@@ -85,7 +85,7 @@ struct FrozenWorkspace: Codable, Sendable {
         let workspace = Workspace.get(byName: frozenWorkspace.name)
         _ = topLeftCornerToMonitor[frozenWorkspace.monitor.topLeftCorner]?
             .singleOrNil()?
-            .setActiveWorkspace(workspace)
+            .setVisibleWorkspace(workspace)
         for frozenWindow in frozenWorkspace.floatingWindows {
             if let window = MacWindow.get(byId: frozenWindow.id),
                window.asMacWindow().macApp.pid == frozenWindow.pid
@@ -108,11 +108,10 @@ struct FrozenWorkspace: Codable, Sendable {
             try await window.relayoutWindow(on: workspace, .cancellable, forceTile: true)
         }
     }
-
     for monitor in closedWindowsCache.monitors {
         _ = topLeftCornerToMonitor[monitor.topLeftCorner]?
             .singleOrNil()?
-            .setActiveWorkspace(Workspace.get(byName: monitor.visibleWorkspace))
+            .setVisibleWorkspace(Workspace.get(byName: monitor.visibleWorkspace))
     }
     return true
 }
